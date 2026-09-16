@@ -1,13 +1,29 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from fastapi import Depends
+
+from database import SessionLocal
+from models import Product as ProductModel
 
 app = FastAPI()
+
+def get_db():
+    db = SessionLocal()
+
+    try:
+        yield db
+    finally:
+        db.close()
+
 class Product(BaseModel):
     name: str
     category: str
     color: str
     fabric: str
-    price: float
+    work: str | None = None
+    price: float | None = None
     available: bool = True
 
 @app.get("/")
@@ -42,28 +58,36 @@ products = [
 ]
 
 @app.get("/products")
-def get_products():
+def get_products(db: Session = Depends(get_db)):
+    products = db.query(ProductModel).all()
     return products
 
 @app.get("/products/{product_id}")
-def get_product(product_id: int):
+def get_product(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
+    product = db.query(ProductModel).filter(
+        ProductModel.id == product_id
+    ).first()
 
-    for product in products:
+    if product is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found"
+        )
 
-        if product["id"] == product_id:
-            return product
+    return product
 
-    raise HTTPException(
-        status_code=404,
-        detail="Product not found"
-    )
 @app.post("/products", status_code=201)
-def create_product(product: Product):
+def create_product(
+    product: Product,
+    db: Session = Depends(get_db)
+):
+    new_product = ProductModel(**product.model_dump())
 
-    new_product = product.model_dump()
-
-    new_product["id"] = len(products) + 1
-
-    products.append(new_product)
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
 
     return new_product
